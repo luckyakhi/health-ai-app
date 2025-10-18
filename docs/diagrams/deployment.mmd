@@ -1,0 +1,49 @@
+%% Mermaid deployment diagram for AWS ECS Fargate deployment
+flowchart TB
+  user[User Browser] -->|HTTP 80| alb(ALB)
+
+  subgraph aws[AWS Account]
+    direction TB
+
+    subgraph vpc[VPC]
+      direction TB
+      igw[Internet Gateway]
+
+      subgraph pub1[Public Subnet A]
+        direction TB
+        alb
+      end
+
+      subgraph pub2[Public Subnet B]
+        direction TB
+        tg[Target Group]
+      end
+
+      alb --> tg
+
+      subgraph ecs[ECS Cluster]
+        direction TB
+        svc[ECS Service - Fargate]
+        task1[ECS Task - Nginx + App]
+        task2[ECS Task - Nginx + App]
+        svc --> task1
+        svc --> task2
+      end
+
+      tg -->|forward| svc
+      igw --- pub1
+      igw --- pub2
+    end
+
+    ecr[(ECR Repository)]
+    cw[(CloudWatch Logs)]
+    task1 -->|pull image| ecr
+    task2 -->|pull image| ecr
+    task1 -->|logs| cw
+    task2 -->|logs| cw
+  end
+
+%% Notes:
+%% - ALB listens on HTTP 80 and forwards to the ECS service target group.
+%% - ECS tasks run in Fargate with public IPs, reachable only via the ALB SG.
+%% - Images are stored in ECR; logs emitted to CloudWatch Logs.
