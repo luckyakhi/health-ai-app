@@ -1,0 +1,355 @@
+openapi: 3.0.3
+info:
+  title: Task API
+  version: 0.1.0
+  description: |
+    REST API for managing tasks. Aligns with the frontend Task type
+    (id, title, status, group, owner) and supports basic CRUD plus
+    lock/unlock (assignment) semantics.
+servers:
+  - url: http://localhost:4000
+    description: Local backend
+tags:
+  - name: Tasks
+paths:
+  /tasks:
+    get:
+      tags: [Tasks]
+      summary: List tasks
+      description: |
+        Returns a paginated list of tasks. Supports basic filtering.
+      parameters:
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/TaskStatus'
+          description: Filter by status
+        - in: query
+          name: group
+          schema:
+            type: string
+          description: Filter by group identifier
+        - in: query
+          name: ownerId
+          schema:
+            type: string
+          description: Filter by owner id (use with current user id to get owned tasks)
+        - in: query
+          name: unassigned
+          schema:
+            type: boolean
+          description: If true, returns only unassigned tasks
+        - in: query
+          name: q
+          schema:
+            type: string
+          description: Case-insensitive substring match against title
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: Page number (1-based)
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 25
+          description: Number of items per page
+      responses:
+        '200':
+          description: A page of tasks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListTasksResponse'
+    post:
+      tags: [Tasks]
+      summary: Create task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+            examples:
+              basic:
+                value:
+                  title: "Insurance verification"
+                  status: "todo"
+                  group: "group-a"
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /tasks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Tasks]
+      summary: Get task
+      responses:
+        '200':
+          description: Task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      tags: [Tasks]
+      summary: Update task
+      description: Partial update. Only send fields that should change.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTaskRequest'
+            examples:
+              changeStatus:
+                value:
+                  status: in_progress
+              assignOwner:
+                value:
+                  ownerId: u2
+              unassign:
+                value:
+                  ownerId: null
+      responses:
+        '200':
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Tasks]
+      summary: Delete task
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /tasks/{id}/lock:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Tasks]
+      summary: Lock (claim) an unassigned task
+      description: |
+        Assigns the task to the requesting user if it is currently unassigned.
+        If already assigned, returns 409 Conflict.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                  description: Explicit user id to assign (optional; may be inferred from auth)
+      responses:
+        '200':
+          description: Locked and assigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Task is already assigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /tasks/{id}/unlock:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Tasks]
+      summary: Unlock (unassign) a task
+      description: |
+        Unassigns the task. Implementations may restrict this to the current owner
+        or administrators. Returns 409 if the task is already unassigned.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                  description: Explicit user id performing the unlock (optional)
+      responses:
+        '200':
+          description: Unlocked and unassigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Task already unassigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    TaskStatus:
+      type: string
+      enum: [todo, in_progress, done]
+      description: Current status of the task
+    UserRef:
+      type: object
+      description: Minimal user reference
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+      required: [id, name]
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        group:
+          type: string
+          nullable: true
+        owner:
+          allOf:
+            - $ref: '#/components/schemas/UserRef'
+          nullable: true
+      required: [id, title, status]
+      example:
+        id: t2
+        title: Vitals cross-check
+        status: in_progress
+        group: group-b
+        owner:
+          id: u2
+          name: Sam
+    CreateTaskRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        group:
+          type: string
+          nullable: true
+        ownerId:
+          type: string
+          nullable: true
+          description: Assign to this user id; if omitted, task is unassigned
+      required: [title]
+    UpdateTaskRequest:
+      type: object
+      description: Fields to update; send only those that change
+      properties:
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        group:
+          type: string
+          nullable: true
+        ownerId:
+          type: string
+          nullable: true
+          description: Set to a user id to assign, or null to unassign
+      additionalProperties: false
+    ListTasksResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Task'
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+        total:
+          type: integer
+          minimum: 0
+        hasNext:
+          type: boolean
+      required: [items, page, pageSize, total, hasNext]
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          nullable: true
+      required: [code, message]
+
